@@ -1,0 +1,12 @@
+Mac Duo
+Copyright 2026 Makito
+
+Originally developed by Makito.
+
+Mac Duo Private is a modified distribution, not an official Mac Duo release.
+Modifications dated 2026-09-19 are described in README.md.
+Version 0.2 rewrites motion tracking, removes continuous capture, reduces idle
+work, and simplifies settings. Original renderer attribution is in About.
+Version 0.3 corrects blur-pyramid centering and hinge-space gradients.
+Version 0.4 adds startup preparation, readiness information, duplicate-instance
+protection, installation guidance, and GitHub publication instructions.
