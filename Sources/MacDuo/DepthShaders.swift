@@ -2,8 +2,8 @@ import Foundation
 
 /// The whole effect in one fragment shader.
 ///
-/// Held-plane and frosted background reconstruction share the same
-/// edge-extended texture pyramid. No live stream or second image is needed.
+/// One held-plane image, with an opaque, symmetric feather onto black.
+/// Blur uses its edge-extended pyramid; no stationary desktop is composited.
 enum DepthShaders {
     static let source = """
     #include <metal_stdlib>
@@ -17,7 +17,7 @@ enum DepthShaders {
         float4 screenAndOrigin;  // screen size, padded origin in picture points
         float4 paddedAndBlur;    // padded size, max radius in pixels, blur strength
         float4 shape;            // blur floor, max dim, pixel scale, max level
-        float4 light;            // dim floor, dim strength, dim reach, closing amount
+        float4 light;            // dim floor, dim strength, dim reach, unused
     };
 
     // Center every level on the same normalized image coordinates, including
@@ -106,15 +106,8 @@ enum DepthShaders {
         float blur = strength * (blurFloor + (1.0 - blurFloor) * height);
         float radius = max(blur * maxRadius, 1.0);
 
-        // A frosted continuation fills the panel beyond the held image. It is
-        // sampled from the same frame and pyramid, with no second capture.
-        float2 baseUnit = (screenPoint - paddedOrigin) / paddedSize;
-        float2 baseUV = float2(baseUnit.x, 1.0 - baseUnit.y);
-        float backgroundLevel = clamp(log2(max(strength * maxRadius * 1.6, 1.0)), 0.0, maxLevel);
-        float4 background = softSample(picture, baseUV, backgroundLevel, maxLevel);
-
         float3 mapped = screenToPicture * float3(screenPoint, 1.0);
-        float4 colour = background;
+        float4 colour = float4(0.0, 0.0, 0.0, 1.0);
         if (mapped.z > 0.001) {
             float2 picturePoint = mapped.xy / mapped.z;
             float2 unit = (picturePoint - paddedOrigin) / paddedSize;
@@ -128,12 +121,17 @@ enum DepthShaders {
             float endDistance = min(picturePoint.y, screenSize.y - picturePoint.y)
                 / max(length(float2(dx.y, dy.y)), 0.0001);
             float outlineDistance = min(sideDistance, endDistance);
-            float edgeWidth = min(24.0, maxRadius / pixelScale * 0.75) * sqrt(strength);
+            float edgeWidth = min(40.0, maxRadius / pixelScale * 0.75) * sqrt(strength);
             float feather = max(edgeWidth, 0.5 / pixelScale);
             float edgeBand = 1.0 - smoothstep(0.0, 2.0 * feather, abs(outlineDistance));
             radius = max(radius, edgeWidth * pixelScale * 0.7 * edgeBand);
-            float edgeFade = strength > 0.00001 ? smoothstep(-feather, feather, outlineDistance) : 1.0;
-            float sideCoverage = strength > 0.00001 ? smoothstep(-feather, feather, sideDistance) : 1.0;
+            float edgeFade = strength > 0.00001 ? smoothstep(-feather, feather, sideDistance) : 1.0;
+            // Suppress magnified detail at the SAME mapped coordinates. Mixing
+            // an unmapped desktop here creates a second, stationary image.
+            float aa = dot(dx, dx), bb = dot(dy, dy), ab = dot(dx, dy);
+            float smallest = sqrt(max(0.0, 0.5 * (aa + bb - sqrt(max(0.0, (aa-bb)*(aa-bb) + 4.0*ab*ab)))));
+            float magnificationBlur = (1.0 - smoothstep(0.35, 0.75, smallest)) * strength * maxRadius;
+            radius = max(radius, magnificationBlur);
             float2 uvPerPoint = float2(1.0, -1.0) / paddedSize;
             float2 gx = dx * uvPerPoint * radius / pixelScale;
             float2 gy = dy * uvPerPoint * radius / pixelScale;
@@ -150,15 +148,9 @@ enum DepthShaders {
             } else {
                 held = picture.sample(linearSampler, texCoord, gradient2d(gx, gy));
             }
-            // Fade into frost before a grazing view can expose giant texels.
-            // Singular values detect magnification in any direction, not just x/y.
-            float aa = dot(dx, dx), bb = dot(dy, dy), ab = dot(dx, dy);
-            float smallest = sqrt(max(0.0, 0.5 * (aa + bb - sqrt(max(0.0, (aa-bb)*(aa-bb) + 4.0*ab*ab)))));
-            float detailFade = smoothstep(0.35, 0.75, smallest);
-            colour = mix(background, held, edgeFade * detailFade);
-            // Apply closing shadows after compositing, avoiding a double mask
-            // that pinches the image inward. Opening keeps its frosted surround.
-            colour.rgb *= mix(1.0, sideCoverage, uniforms.light.w);
+            // A single coverage mask for BOTH motion directions. Alpha stays
+            // opaque, so neither the live desktop nor a duplicate shows through.
+            colour = float4(held.rgb * edgeFade, 1.0);
         }
         // smoothstep rather than a clamped ratio, so the height where the
         // dimming reaches full strength leaves no visible edge.

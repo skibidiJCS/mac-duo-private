@@ -78,11 +78,12 @@ final class RenderSymmetryTests: XCTestCase {
             for angle in [170.0, 150, 130, 120, 110, 100, 85, 65, 40, 25, 20] {
                 let progress = min(abs(110 - angle) / 65, 1)
                 let gradient = BlurGradient()
-                let commands = try XCTUnwrap(renderer.render(screenToPicture: DepthGeometry().screenToPicture(startAngle: 110, currentAngle: angle, screenSize: CGSize(width: Double(width) / Double(scale), height: Double(height) / Double(scale))), blurStrength: gradient.blurStrength(progress: progress), dimStrength: gradient.dimStrength(progress: progress), hingeFloor: 0, dimHingeFloor: 0.2, dimReach: 0.65, maxBlurRadius: 32, maxDim: 0.12, closingAmount: min(max((110 - angle) / 15, 0), 1), offscreenTarget: output))
+                let commands = try XCTUnwrap(renderer.render(screenToPicture: DepthGeometry().screenToPicture(startAngle: 110, currentAngle: angle, screenSize: CGSize(width: Double(width) / Double(scale), height: Double(height) / Double(scale))), blurStrength: gradient.blurStrength(progress: progress), dimStrength: gradient.dimStrength(progress: progress), hingeFloor: 0, dimHingeFloor: 0.2, dimReach: 0.65, maxBlurRadius: 64, maxDim: 0.12, offscreenTarget: output))
                 commands.waitUntilCompleted()
                 XCTAssertEqual(commands.status, .completed)
                 var bytes = [UInt8](repeating: 0, count: width * height * 4)
                 output.getBytes(&bytes, bytesPerRow: width * 4, from: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0)
+                XCTAssertTrue(stride(from: 3, to: bytes.count, by: 4).allSatisfy { bytes[$0] == 255 }, "The live desktop must never show through the overlay")
                 if angle == 110 {
                     let original = context.data!.assumingMemoryBound(to: UInt8.self)
                     var identityError = 0
@@ -113,9 +114,6 @@ final class RenderSymmetryTests: XCTestCase {
                             XCTAssertLessThan(outside, inside, "The feather must fade continuously toward the dark side")
                             XCTAssertLessThan(inside, center - 5, "Blur must also soften the inside of the outline")
                         }
-                    } else {
-                        let darkest = stride(from: 0, to: bytes.count, by: 4).map { bytes[$0] }.min()!
-                        XCTAssertGreaterThan(darkest, 200, "Opening should retain the frosted continuation")
                     }
                 }
                 var worst = 0
@@ -143,4 +141,60 @@ final class RenderSymmetryTests: XCTestCase {
           }
         }
     }
+    @MainActor func testOpaqueSidesAndReversalsWithAsymmetricDesktop() throws {
+        let device = try XCTUnwrap(MTLCreateSystemDefaultDevice())
+        let renderer = try XCTUnwrap(DepthRenderer())
+        let width = 734, height = 478
+        let size = CGSize(width: width, height: height)
+        let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(origin: .zero, size: size))
+        context.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
+        context.fill(CGRect(x: width / 2, y: 0, width: width / 2, height: height))
+        renderer.adopt(try XCTUnwrap(renderer.makePicture(image: try XCTUnwrap(context.makeImage()),
+            screenSize: size, pixelScale: 1)))
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm_srgb,
+            width: width, height: height, mipmapped: false)
+        descriptor.storageMode = .shared
+        descriptor.usage = [.renderTarget]
+        let output = try XCTUnwrap(device.makeTexture(descriptor: descriptor))
+        var previous: [Double: [UInt8]] = [:]
+        for angle in [65.0, 150, 20, 110, 150, 65, 20, 65, 110] {
+            let progress = min(abs(110 - angle) / 65, 1)
+            let gradient = BlurGradient()
+            let commands = try XCTUnwrap(renderer.render(screenToPicture: DepthGeometry().screenToPicture(
+                startAngle: 110, currentAngle: angle, screenSize: size),
+                blurStrength: gradient.blurStrength(progress: progress),
+                dimStrength: gradient.dimStrength(progress: progress), hingeFloor: 0,
+                dimHingeFloor: 0.2, dimReach: 0.65, maxBlurRadius: 64, maxDim: 0.12,
+                offscreenTarget: output))
+            commands.waitUntilCompleted()
+            XCTAssertEqual(commands.status, .completed)
+            var pixels = [UInt8](repeating: 0, count: width * height * 4)
+            output.getBytes(&pixels, bytesPerRow: width * 4,
+                from: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0)
+            if let earlier = previous[angle] {
+                XCTAssertEqual(pixels, earlier, "Reversals must not accumulate an old image or mask")
+            }
+            previous[angle] = pixels
+            if angle == 65 {
+                for x in [0, width - 1] {
+                    let index = ((height / 4) * width + x) * 4
+                    XCTAssertEqual(Array(pixels[index..<index + 4]), [0, 0, 0, 255],
+                        "Exposed sides must be opaque black, with no stationary desktop behind")
+                }
+            }
+            // Different source colours must not change the left/right mask.
+            for y in stride(from: 0, to: height, by: 7) {
+                for x in 0..<(width / 4) {
+                    let left = (y * width + x) * 4
+                    let right = (y * width + width - 1 - x) * 4
+                    XCTAssertEqual(Int(pixels[left + 2]), Int(pixels[right]), accuracy: 3)
+                }
+            }
+        }
+    }
+
 }

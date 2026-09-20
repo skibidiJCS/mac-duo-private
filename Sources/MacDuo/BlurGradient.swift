@@ -5,7 +5,7 @@ import Foundation
 struct BlurGradient {
 
     /// Exponent on the closing travel. Values above 1 start slowly.
-    var blurCurve: Double = 1.6
+    var blurCurve: Double = 1.15
 
     /// Exponent on the closing travel for the dimming.
     var dimCurve: Double = 0.7

@@ -1,4 +1,4 @@
-# Mac Duo Private 0.4.8
+# Mac Duo Private 0.4.9
 
 A native, local-only MacBook lid effect inspired by the iPhone Duo. Built on Makito's Apache-2.0 Mac Duo renderer, with a rewritten gesture controller. This is an independent modified build, not an Apple or official upstream app.
 
@@ -12,7 +12,7 @@ The current local build is Apple Development signed, not Apple-notarized. Builds
 
 ## Automatic behavior
 
-The actual resting lid angle becomes the gesture reference; there is no fixed 90° activation threshold. The renderer traces the moving glass back to the held desktop plane using a fixed assumed viewing position. It crops that plane instead of fitting it into a compressed strip. The sides exposed during closing darken symmetrically; opening retains a frosted continuation of the same image. Blur increases away from the hinge. At extreme magnification, fine detail fades into frost before large texels become visible. After roughly 0.85 seconds without significant movement, the picture returns to the glass over 0.32 seconds and adopts the new angle. Movement during the return continues smoothly from the visible plane.
+The actual resting lid angle becomes the gesture reference; there is no fixed 90° activation threshold. The renderer traces the moving glass back to the held desktop plane using a fixed assumed viewing position. It crops that plane instead of fitting it into a compressed strip. Exposed sides darken with one symmetric mask for both motion directions. Strong blur increases away from the hinge and around the edges. At extreme magnification, the same mapped image becomes softer; no stationary desktop copy is blended behind it. After roughly 0.85 seconds without significant movement, the picture returns to the glass over 0.32 seconds and adopts the new angle. Movement during the return continues smoothly from the visible plane.
 
 The supplied video was reviewed directly, including paused close-up frames. This is a reference-informed adaptation, not a verified pixel-for-pixel reproduction. The timings and assumed viewing position remain approximations; no camera or head tracking is used. See [reference observations](docs/REFERENCE.md).
 
@@ -107,3 +107,9 @@ All 19 tests pass, including 88 rendered frames, symmetric closing shadows, brig
 Kept the approved 0.4.7 projection, dimensions, and motion unchanged. Added a centred feather around the projected outline, with extra blur localized to that edge band. Edge distance is measured on the glass, so its softness remains consistent under perspective. Closing shadows are applied once after compositing, allowing the image to soften into the dark sides without moving the underlying boundary inward. Edge blur fades with the existing motion/recovery strength and is absent at rest.
 
 All 19 tests pass, including GPU checks for blur outside and inside the original boundary, symmetry, dark closing sides, sharp resting pixels, and smooth blur reconstruction. No additional capture, texture allocation, or idle work was added. The reference was reviewed again at its close-up transition; exact physical appearance still depends on the viewing position.
+
+## Version 0.4.9 single-image composition
+
+Removed the stationary blurred desktop blended behind the held image, which could appear as two competing layers. Magnification protection now blurs the same projected coordinates. A single symmetric side mask applies during opening and closing, and the overlay is opaque. The accepted projection and timing are unchanged. Blur reaches 64 points instead of 32, starts earlier, and has a wider edge band. Zero-duration reveal sets opacity directly without a window animation.
+
+GPU regressions cover opaque output, black exposed sides, asymmetric source colours, repeatable frames after direction changes, resting fidelity, and symmetry at odd/even and Retina dimensions. The change removes the background sampling path and adds no captures, texture allocations, or idle work. Physical lid feel and battery use still require on-device verification.

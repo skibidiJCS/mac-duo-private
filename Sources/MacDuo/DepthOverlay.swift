@@ -161,8 +161,8 @@ final class DepthOverlay {
             defer: false
         )
         window.contentView = view
-        window.isOpaque = false
-        window.backgroundColor = .clear
+        window.isOpaque = true
+        window.backgroundColor = .black
         window.hasShadow = false
         window.ignoresMouseEvents = true
         window.isReleasedWhenClosed = false
@@ -180,6 +180,10 @@ final class DepthOverlay {
     private func reveal() {
         guard let window, !hasRevealed, renderer?.isReady == true else { return }
         hasRevealed = true
+        if fadeIn <= 0 {
+            window.alphaValue = 1
+            return
+        }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = fadeIn
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -202,8 +206,7 @@ final class DepthOverlay {
             dimHingeFloor: gradient.dimHingeFloor,
             dimReach: tuning.dimReach,
             maxBlurRadius: tuning.maxBlurRadius,
-            maxDim: tuning.maxDim,
-            closingAmount: min(max(((referenceAngle ?? startAngle) - currentAngle) / 15, 0), 1)
+            maxDim: tuning.maxDim
         )
     }
 
