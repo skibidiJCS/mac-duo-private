@@ -2,11 +2,8 @@ import Foundation
 
 /// The whole effect in one fragment shader.
 ///
-/// Each screen pixel maps back into the picture through the inverse
-/// perspective, then takes one sample from a centered blur pyramid at a level
-/// chosen by the blur wanted there. The texture already holds the picture on
-/// black, so the two blur together and the picture edge needs no special
-/// handling.
+/// One held-plane sample and one frosted background sample share the same
+/// edge-extended texture pyramid. No live stream or second image is needed.
 enum DepthShaders {
     static let source = """
     #include <metal_stdlib>
@@ -51,7 +48,7 @@ enum DepthShaders {
     fragment float4 depthFragment(float4 position [[position]],
                                    constant Uniforms &uniforms [[buffer(0)]],
                                    texture2d<float> picture [[texture(0)]]) {
-        constexpr sampler linearSampler(filter::linear, mip_filter::linear, address::clamp_to_edge);
+        constexpr sampler linearSampler(filter::linear, mip_filter::linear, max_anisotropy(8), address::clamp_to_edge);
 
         float2 screenSize = uniforms.screenAndOrigin.xy;
         float2 paddedOrigin = uniforms.screenAndOrigin.zw;
@@ -74,29 +71,39 @@ enum DepthShaders {
         float3x3 screenToPicture = float3x3(uniforms.column0.xyz,
                                             uniforms.column1.xyz,
                                             uniforms.column2.xyz);
-        float3 mapped = screenToPicture * float3(screenPoint, 1.0);
-        if (abs(mapped.z) < 1e-6) { return float4(0.0, 0.0, 0.0, 1.0); }
-        float2 picturePoint = mapped.xy / mapped.z;
-
-        float2 unit = (picturePoint - paddedOrigin) / paddedSize;
-        if (unit.x < 0.0 || unit.x > 1.0 || unit.y < 0.0 || unit.y > 1.0) {
-            return float4(0.0, 0.0, 0.0, 1.0);
-        }
-        float2 texCoord = float2(unit.x, 1.0 - unit.y);
-
-        // Frost belongs to the physical glass, not the projected desktop.
         float height = clamp(screenPoint.y / screenSize.y, 0.0, 1.0);
         float blur = strength * (blurFloor + (1.0 - blurFloor) * height);
-        // Naming this `level` would shadow Metal's level() selector.
-        // Convert a radius on the glass to source texels. Opening can magnify
-        // the picture; using an unadjusted source radius magnifies its blur too.
-        float2 texelsPerPoint = float2(picture.get_width(), picture.get_height()) / paddedSize;
-        float2 dx = (uniforms.column0.xy - picturePoint * uniforms.column0.z) / mapped.z;
-        float2 dy = (uniforms.column1.xy - picturePoint * uniforms.column1.z) / mapped.z;
-        float footprint = max(length(dx * texelsPerPoint), length(dy * texelsPerPoint)) / pixelScale;
-        float mipLevel = clamp(log2(max(max(blur * maxRadius, 1.0) * footprint, 1.0)), 0.0, maxLevel);
+        float radius = max(blur * maxRadius, 1.0);
 
-        float4 colour = picture.sample(linearSampler, texCoord, level(mipLevel));
+        // A frosted continuation fills the panel beyond the held image. It is
+        // sampled from the same frame and pyramid, with no second capture.
+        float2 baseUnit = (screenPoint - paddedOrigin) / paddedSize;
+        float2 baseUV = float2(baseUnit.x, 1.0 - baseUnit.y);
+        float backgroundLevel = clamp(log2(max(strength * maxRadius * 1.6, 1.0)), 0.0, maxLevel);
+        float4 background = picture.sample(linearSampler, baseUV, level(backgroundLevel));
+
+        float3 mapped = screenToPicture * float3(screenPoint, 1.0);
+        float4 colour = background;
+        if (mapped.z > 0.001) {
+            float2 picturePoint = mapped.xy / mapped.z;
+            float2 unit = (picturePoint - paddedOrigin) / paddedSize;
+            float2 texCoord = float2(unit.x, 1.0 - unit.y);
+            float2 dx = (uniforms.column0.xy - picturePoint * uniforms.column0.z) / mapped.z;
+            float2 dy = (uniforms.column1.xy - picturePoint * uniforms.column1.z) / mapped.z;
+            float2 uvPerPoint = float2(1.0, -1.0) / paddedSize;
+            float2 gx = dx * uvPerPoint * radius / pixelScale;
+            float2 gy = dy * uvPerPoint * radius / pixelScale;
+            float4 held = picture.sample(linearSampler, texCoord, gradient2d(gx, gy));
+            float edge = min(min(picturePoint.x, screenSize.x - picturePoint.x),
+                             min(picturePoint.y, screenSize.y - picturePoint.y));
+            float edgeFade = smoothstep(0.0, max(radius / pixelScale, 0.5), edge);
+            // Fade into frost before a grazing view can expose giant texels.
+            // Singular values detect magnification in any direction, not just x/y.
+            float aa = dot(dx, dx), bb = dot(dy, dy), ab = dot(dx, dy);
+            float smallest = sqrt(max(0.0, 0.5 * (aa + bb - sqrt(max(0.0, (aa-bb)*(aa-bb) + 4.0*ab*ab)))));
+            float detailFade = smoothstep(0.35, 0.75, smallest);
+            colour = mix(background, held, edgeFade * detailFade);
+        }
         // smoothstep rather than a clamped ratio, so the height where the
         // dimming reaches full strength leaves no visible edge.
         float spread = smoothstep(0.0, max(dimReach, 0.02), height);

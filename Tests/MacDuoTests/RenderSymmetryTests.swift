@@ -28,10 +28,10 @@ final class RenderSymmetryTests: XCTestCase {
             descriptor.storageMode = .shared
             descriptor.usage = [.renderTarget]
             let output = try XCTUnwrap(device.makeTexture(descriptor: descriptor))
-            for angle in [130.0, 120, 110, 100, 85, 65, 40] {
+            for angle in [170.0, 150, 130, 120, 110, 100, 85, 65, 40, 25, 20] {
                 let progress = min(abs(110 - angle) / 65, 1)
                 let gradient = BlurGradient()
-                let commands = try XCTUnwrap(renderer.render(corners: DepthGeometry().corners(startAngle: 110, currentAngle: angle, screenSize: CGSize(width: Double(width) / Double(scale), height: Double(height) / Double(scale))), blurStrength: gradient.blurStrength(progress: progress), dimStrength: gradient.dimStrength(progress: progress), hingeFloor: 0, dimHingeFloor: 0.2, dimReach: 0.65, maxBlurRadius: 32, maxDim: 0.45, offscreenTarget: output))
+                let commands = try XCTUnwrap(renderer.render(screenToPicture: DepthGeometry().screenToPicture(startAngle: 110, currentAngle: angle, screenSize: CGSize(width: Double(width) / Double(scale), height: Double(height) / Double(scale))), blurStrength: gradient.blurStrength(progress: progress), dimStrength: gradient.dimStrength(progress: progress), hingeFloor: 0, dimHingeFloor: 0.2, dimReach: 0.65, maxBlurRadius: 32, maxDim: 0.12, offscreenTarget: output))
                 commands.waitUntilCompleted()
                 XCTAssertEqual(commands.status, .completed)
                 var bytes = [UInt8](repeating: 0, count: width * height * 4)
@@ -43,6 +43,10 @@ final class RenderSymmetryTests: XCTestCase {
                         identityError = max(identityError, abs(Int(bytes[i]) - Int(original[i])))
                     }
                     XCTAssertLessThanOrEqual(identityError, 1, "Resting frame must preserve full-resolution pixels")
+                }
+                if !grid {
+                    let darkest = stride(from: 0, to: bytes.count, by: 4).map { bytes[$0] }.min()!
+                    XCTAssertGreaterThan(darkest, 200, "The frosted backdrop must not collapse to black")
                 }
                 var worst = 0
                 var sum = 0

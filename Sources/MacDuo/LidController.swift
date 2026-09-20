@@ -49,7 +49,7 @@ final class LidController: ObservableObject {
     private static let idleInterval = 1.0 / 20
     private static let activeInterval = 1.0 / 60
     private let tuning = DepthTuning(blurEvenness: 0,
-                                    dimReach: 0.65, maxBlurRadius: 32, maxDim: 0.45)
+                                    dimReach: 0.65, maxBlurRadius: 32, maxDim: 0.12)
 
     init(preferences: Preferences) {
         self.preferences = preferences

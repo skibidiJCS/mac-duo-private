@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import simd
 @testable import LidAngleKit
 @testable import MacDuo
 
@@ -43,14 +44,11 @@ final class AnimationTests: XCTestCase {
         XCTAssertEqual(spring.value, 100, accuracy: 0.001)
         XCTAssertTrue(spring.velocity.isFinite)
     }
-    func testCenteredImageAndFlatFrameMatchDisplay() {
-        let geometry = DepthGeometry()
-        let flat = geometry.corners(startAngle: 90, currentAngle: 90, screenSize: CGSize(width: 1440, height: 900))
-        XCTAssertEqual(flat, [CGPoint(x: 0, y: 0), CGPoint(x: 1440, y: 0), CGPoint(x: 1440, y: 900), CGPoint(x: 0, y: 900)])
-        for angle in stride(from: 5.0, through: 90.0, by: 5) {
-            let corners = geometry.corners(startAngle: 90, currentAngle: angle, screenSize: CGSize(width: 1440, height: 900))
-            XCTAssertEqual(corners[0].x + corners[1].x, 1440, accuracy: 1e-9)
-            XCTAssertTrue(corners.allSatisfy { $0.x.isFinite && $0.y.isFinite })
+    func testRestingProjectionPreservesFullResolutionCoordinates() {
+        let matrix = DepthGeometry().screenToPicture(startAngle: 110, currentAngle: 110,
+            screenSize: CGSize(width: 1440, height: 900))
+        for p in [SIMD3(0.5, 0.5, 1), SIMD3(720, 450, 1), SIMD3(1439.5, 899.5, 1)] {
+            XCTAssertEqual(matrix * p, p)
         }
     }
 }

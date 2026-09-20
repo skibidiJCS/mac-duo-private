@@ -5,13 +5,13 @@ import simd
 
 /// Draws the picture with Metal.
 ///
-/// The picture sits on a black margin in one texture, with a centered blur pyramid
+/// The picture has an edge-extended margin in one texture, with a centered blur pyramid
 /// over it. Each frame is one full screen pass.
 @MainActor
 final class DepthRenderer {
 
-    /// Black margin around the picture, in points. Stays above the largest
-    /// blur radius, so the blur reaches real black on every side.
+    /// Edge extension around the picture, in points. Stays above the largest
+    /// blur radius, so the glass stays filled at the picture boundary.
     nonisolated private static let paddingInPoints: CGFloat = 48
 
     private struct Uniforms {
@@ -102,7 +102,7 @@ final class DepthRenderer {
         target.needsDisplayOnBoundsChange = true
     }
 
-    /// Puts the picture on a black margin, uploads it, and builds the pyramid.
+    /// Extends the picture edges, uploads it, and builds the pyramid.
     /// Call this off the main thread.
     nonisolated func makePicture(image: CGImage, screenSize: CGSize, pixelScale: CGFloat) -> PreparedPicture? {
         let started = CFAbsoluteTimeGetCurrent()
@@ -145,6 +145,23 @@ final class DepthRenderer {
             width: CGFloat(width) - 2 * inset,
             height: CGFloat(height) - 2 * inset
         ))
+        // Extend edge colours into the blur margin. Black padding turned the
+        // reference's translucent-glass effect into a black collapsing panel.
+        context.flush()
+        let pixels = staging.contents().assumingMemoryBound(to: UInt32.self)
+        let margin = Int(inset.rounded())
+        for y in margin..<(height - margin) {
+            let row = y * width
+            let left = pixels[row + margin], right = pixels[row + width - margin - 1]
+            for x in 0..<margin {
+                pixels[row + x] = left
+                pixels[row + width - 1 - x] = right
+            }
+        }
+        for y in 0..<margin {
+            memcpy(pixels + y * width, pixels + margin * width, width * 4)
+            memcpy(pixels + (height - 1 - y) * width, pixels + (height - 1 - margin) * width, width * 4)
+        }
         let drawn = CFAbsoluteTimeGetCurrent()
 
         let levels = Int(floor(log2(Double(max(width, height))))) + 1
@@ -234,11 +251,10 @@ final class DepthRenderer {
         configure(layer)
     }
 
-    /// - Parameter corners: the picture corners projected onto the screen, in
-    ///   points, listed bottom-left, bottom-right, top-right, top-left.
+    /// Inverse projection maps the physical glass directly to the held image.
     @discardableResult
     func render(
-        corners: [CGPoint],
+        screenToPicture: simd_double3x3,
         blurStrength: Double,
         dimStrength: Double,
         hingeFloor: Double,
@@ -253,15 +269,8 @@ final class DepthRenderer {
         guard let texture, screenSize.width > 0, screenSize.height > 0,
               let target = offscreenTarget ?? drawable?.texture else { return nil }
 
-        let forward = Homography.matrix(
-            width: Double(screenSize.width),
-            height: Double(screenSize.height),
-            to: corners.map { SIMD2(Double($0.x), Double($0.y)) }
-        )
-        let inverse = forward.inverse
-
         func column(_ index: Int) -> SIMD4<Float> {
-            let c = inverse[index]
+            let c = screenToPicture[index]
             return SIMD4(Float(c.x), Float(c.y), Float(c.z), 0)
         }
         var uniforms = Uniforms(

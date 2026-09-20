@@ -1,6 +1,7 @@
 import AppKit
 import Metal
 import QuartzCore
+import simd
 
 /// A borderless window above everything, including the menu bar and full
 /// screen spaces. It never takes focus and never takes clicks.
@@ -9,20 +10,30 @@ final class OverlayWindow: NSWindow {
     override var canBecomeMain: Bool { false }
 }
 
-/// A bounded similarity transform: no perspective divide, skew, or upscaling.
-/// This is a restrained visual cue, not a head-tracked world-space projection.
+/// Cast a ray through each point on the moving glass onto the held desktop.
+/// Direct inverse projection crops the original plane; it never fits that plane
+/// into a shrinking rectangle. The assumed eye remains fixed through recovery.
 struct DepthGeometry {
-    func corners(startAngle: Double, currentAngle: Double, screenSize: CGSize) -> [CGPoint] {
-        let travel = max(-90, min(90, startAngle - currentAngle)) * .pi / 180
-        let displacement = sin(travel)
-        let scale = 1 - 0.06 * displacement * displacement
-        let width = screenSize.width, height = screenSize.height
-        let x = width * (1 - scale) / 2
-        // Stay inside the panel in both directions; never crop or stretch.
-        let y = height * (1 - scale) * (0.5 + 0.5 * displacement)
-        return [CGPoint(x: x, y: y), CGPoint(x: x + width * scale, y: y),
-                CGPoint(x: x + width * scale, y: y + height * scale),
-                CGPoint(x: x, y: y + height * scale)]
+    static let viewingDistance = 3.5
+
+    func screenToPicture(startAngle: Double, currentAngle: Double, screenSize: CGSize,
+                         viewingAngle: Double? = nil) -> simd_double3x3 {
+        let a = startAngle * .pi / 180
+        let view = (viewingAngle ?? startAngle) * .pi / 180
+        let delta = (startAngle - currentAngle) * .pi / 180
+        let height = Double(screenSize.height)
+        let reach = height * (Self.viewingDistance * sin(view) + 0.5 * cos(view))
+        let rise = height * (-Self.viewingDistance * cos(view) + 0.5 * sin(view))
+        let normalDistance = reach * sin(a) - rise * cos(a)
+        let along = reach * cos(a) + rise * sin(a)
+        let safeDistance = max(normalDistance, height * 0.05)
+        let depthSlope = sin(delta) / safeDistance
+        return simd_double3x3(columns: (
+            SIMD3(1, 0, 0),
+            SIMD3(-Double(screenSize.width) * 0.5 * depthSlope,
+                  cos(delta) - along * depthSlope, -depthSlope),
+            SIMD3(0, 0, 1)
+        ))
     }
 }
 
@@ -70,6 +81,7 @@ final class DepthOverlay {
 
     private var screenSize: CGSize = .zero
     private var startAngle: Double = 90
+    private var viewingAngle: Double = 90
     private var geometry = DepthGeometry()
     private var gradient = BlurGradient()
     private var tuning = DepthTuning()
@@ -104,6 +116,7 @@ final class DepthOverlay {
         guard let displayID = screen.displayID, displayID == NSScreen.builtIn?.displayID else { return }
         guard warmUp(), let renderer else { return }
         self.startAngle = startAngle
+        self.viewingAngle = startAngle
         self.tuning = tuning
         self.fadeIn = fadeIn
         screenSize = screen.frame.size
@@ -178,10 +191,10 @@ final class DepthOverlay {
         guard let renderer, renderer.isReady else { return }
         self.tuning = tuning
         renderer.render(
-            corners: geometry.corners(
+            screenToPicture: geometry.screenToPicture(
                 startAngle: referenceAngle ?? startAngle,
                 currentAngle: currentAngle,
-                screenSize: screenSize
+                screenSize: screenSize, viewingAngle: viewingAngle
             ),
             blurStrength: gradient.blurStrength(progress: progress),
             dimStrength: gradient.dimStrength(progress: progress),

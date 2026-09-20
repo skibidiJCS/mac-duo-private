@@ -1,4 +1,4 @@
-# Mac Duo Private 0.4.4
+# Mac Duo Private 0.4.6
 
 A native, local-only MacBook lid effect inspired by the iPhone Duo. Built on Makito's Apache-2.0 Mac Duo renderer, with a rewritten gesture controller. This is an independent modified build, not an Apple or official upstream app.
 
@@ -12,16 +12,16 @@ The current local build is Apple Development signed, not Apple-notarized. Builds
 
 ## Automatic behavior
 
-The actual resting lid angle becomes the gesture reference; there is no fixed 90° activation threshold. During movement the picture keeps its rectangular shape and aspect ratio. It shrinks by at most 6%, with a small directional shift, and never enlarges or crops the screenshot. After roughly 0.85 seconds without significant movement, the picture returns to the glass over 0.32 seconds and adopts the new angle. Movement during the return continues smoothly from the visible plane. Further gestures work from the new position, even below 90°.
+The actual resting lid angle becomes the gesture reference; there is no fixed 90° activation threshold. The renderer traces the moving glass back to the held desktop plane using a fixed assumed viewing position. It crops that plane instead of fitting it into a compressed strip. A frosted continuation of the same image fills the panel beyond its bounds; blur increases away from the hinge. At extreme magnification, fine detail fades into frost before large texels become visible. After roughly 0.85 seconds without significant movement, the picture returns to the glass over 0.32 seconds and adopts the new angle. Movement during the return continues smoothly from the visible plane.
 
-Those timings are visual approximations of the supplied reference, not verified Apple constants. This restrained effect approximates a stationary image; it does not hold an exact world-space plane. No camera or eye tracking is used.
+The supplied video was reviewed directly, including paused close-up frames. This is a reference-informed adaptation, not a verified pixel-for-pixel reproduction. The timings and assumed viewing position remain approximations; no camera or head tracking is used. See [reference observations](docs/REFERENCE.md).
 
 The menu offers Animation, Open at login, Preview, About, and Quit. No manual appearance tuning is needed. Old tuning values are removed on upgrade. Credits and license remain under About and in the app bundle.
 
 ## Energy and privacy
 
 - One in-memory desktop snapshot per gesture, with at most one retry on failure. No continuous screen stream, audio, uploads, analytics, updater, or saved screenshots.
-- Twenty small sensor polls/second while enabled on the built-in display. A timer tolerance allows macOS to coalesce wakeups.
+- Twenty small sensor polls/second while idle and enabled on the built-in display; 60/second only during a gesture. A timer tolerance allows macOS to coalesce wakeups.
 - No polling while disabled, asleep, locked, lacking capture permission, or without an eligible built-in display.
 - No menu-bar refresh timer. GPU rendering runs only while the image changes; the blur pyramid is built once per snapshot. Frames and drawable references are released after the gesture.
 - The renderer follows the display refresh rate and caps it at 60 Hz in Low Power Mode.
@@ -83,3 +83,15 @@ No capture loop, idle rendering, dependencies, or data collection were added. Au
 Replaced perspective projection with a bounded uniform transform. Opening and closing preserve aspect ratio, never enlarge source pixels, and keep the entire picture inside the panel even at extreme angles. Blur and dimming are gentler. The first rendered frame reads the latest lid position after texture upload rather than revealing an outdated pose. Smoothing reaches 90% of a new sample within 70 ms; this is not an end-to-end latency measurement. Idle polling stays at 20 Hz; active polling is 60 Hz only during a gesture. Capture remains one frame per gesture, and the smaller blur margin reduces temporary image memory.
 
 All 17 tests pass, including 3,721 angle pairs for shape, scale, and bounds, 56 GPU renders, full-resolution resting image fidelity, repeated gestures, and reversals. Hardware sensor and capture latency remain; battery drain and the physical feel are not established by these tests.
+
+## Version 0.4.5 full hinge movement
+
+Restored full-angle hinge rotation instead of the subtle 6% shrink. The reference orientation remains anchored until the existing pause/recovery completes. Orthographic projection avoids opening magnification and perspective singularities; at edge-on it keeps a half-degree sliver instead of flipping the back of the image into view. Straight lines remain straight. Anisotropic texture filtering preserves more detail across the hinge while filtering the compressed direction.
+
+All 18 tests pass, including independent 3D projection checks, the 90° to 15° closing example, reversals, recovery, and 88 GPU renders with image fidelity and symmetry checks. Idle polling, one-frame capture, and the fast smoothing from 0.4.4 remain unchanged. Physical viewing quality and active battery usage still require on-device testing.
+
+## Version 0.4.6 frosted-glass composition
+
+Replaced the rejected orthographic squeeze with direct inverse perspective onto the original plane. The viewing position is held fixed through tracking and recovery. Edge-extended texture padding and a blurred continuation fill the glass instead of exposing a black background. A continuous magnification guard fades detail into frost at grazing angles. Anisotropic filtering, full-resolution capture, fast smoothing, and the latest-pose first frame remain.
+
+All 18 tests pass: independent world-space ray comparisons, signed opening/closing perspective, finite transforms across the sensor range, reversal/recovery, and 88 GPU frames covering symmetry, resting pixel fidelity, and absence of black collapse. This does not establish a precise match for every physical viewing position or measure battery drain. The new composition adds one texture sample per animated pixel but no extra capture, retained image, or idle rendering.
