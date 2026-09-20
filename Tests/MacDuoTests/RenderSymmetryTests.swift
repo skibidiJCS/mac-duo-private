@@ -31,7 +31,7 @@ final class RenderSymmetryTests: XCTestCase {
             for angle in [130.0, 120, 110, 100, 85, 65, 40] {
                 let progress = min(abs(110 - angle) / 65, 1)
                 let gradient = BlurGradient()
-                let commands = try XCTUnwrap(renderer.render(corners: DepthGeometry().corners(startAngle: 110, currentAngle: angle, viewingDistanceRatio: 4, recession: 1, screenSize: CGSize(width: Double(width) / Double(scale), height: Double(height) / Double(scale))), blurStrength: gradient.blurStrength(progress: progress), dimStrength: gradient.dimStrength(progress: progress), hingeFloor: 0, dimHingeFloor: 0.2, dimReach: 0.65, maxBlurRadius: 100, maxDim: 0.85, offscreenTarget: output))
+                let commands = try XCTUnwrap(renderer.render(corners: DepthGeometry().corners(startAngle: 110, currentAngle: angle, screenSize: CGSize(width: Double(width) / Double(scale), height: Double(height) / Double(scale))), blurStrength: gradient.blurStrength(progress: progress), dimStrength: gradient.dimStrength(progress: progress), hingeFloor: 0, dimHingeFloor: 0.2, dimReach: 0.65, maxBlurRadius: 32, maxDim: 0.45, offscreenTarget: output))
                 commands.waitUntilCompleted()
                 XCTAssertEqual(commands.status, .completed)
                 var bytes = [UInt8](repeating: 0, count: width * height * 4)

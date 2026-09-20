@@ -1,4 +1,4 @@
-# Mac Duo Private 0.4.3
+# Mac Duo Private 0.4.4
 
 A native, local-only MacBook lid effect inspired by the iPhone Duo. Built on Makito's Apache-2.0 Mac Duo renderer, with a rewritten gesture controller. This is an independent modified build, not an Apple or official upstream app.
 
@@ -12,9 +12,9 @@ The current local build is Apple Development signed, not Apple-notarized. Builds
 
 ## Automatic behavior
 
-The actual resting lid angle becomes the starting plane; there is no fixed 90° activation threshold. During movement the picture stays on that plane while the glass moves underneath, in either direction. After roughly 0.85 seconds without significant movement, the picture returns to the glass over 0.32 seconds and adopts the new angle. Movement during the return continues smoothly from the visible plane. Further gestures work from the new position, even below 90°.
+The actual resting lid angle becomes the gesture reference; there is no fixed 90° activation threshold. During movement the picture keeps its rectangular shape and aspect ratio. It shrinks by at most 6%, with a small directional shift, and never enlarges or crops the screenshot. After roughly 0.85 seconds without significant movement, the picture returns to the glass over 0.32 seconds and adopts the new angle. Movement during the return continues smoothly from the visible plane. Further gestures work from the new position, even below 90°.
 
-Those timings are visual approximations of the supplied reference, not verified Apple constants. Perspective assumes an ordinary seated viewing position; no camera or eye tracking is used.
+Those timings are visual approximations of the supplied reference, not verified Apple constants. This restrained effect approximates a stationary image; it does not hold an exact world-space plane. No camera or eye tracking is used.
 
 The menu offers Animation, Open at login, Preview, About, and Quit. No manual appearance tuning is needed. Old tuning values are removed on upgrade. Credits and license remain under About and in the app bundle.
 
@@ -77,3 +77,9 @@ Permission status is shared between controller and menu. A manual recheck querie
 The assumed viewer sits in front of the original screen plane and stays fixed throughout the gesture and recovery. A more distant assumed viewpoint reduces exaggerated enlargement on opening. The projection preserves a rigid plane; apparent enlargement and cropping when opening are physically necessary for that model. Exact alignment from every real viewing position is not possible without head tracking, which this app does not use. Blur radius is now corrected for the local projection scale so opening does not magnify the blur. Full-resolution image upload uses high-quality interpolation.
 
 No capture loop, idle rendering, dependencies, or data collection were added. Automated tests cover interior-point projection against independent 3D ray intersections, opening/closing symmetry, and full-resolution identity frames. Physical viewing quality and active battery use still require testing on the device.
+
+## Version 0.4.4 restrained motion
+
+Replaced perspective projection with a bounded uniform transform. Opening and closing preserve aspect ratio, never enlarge source pixels, and keep the entire picture inside the panel even at extreme angles. Blur and dimming are gentler. The first rendered frame reads the latest lid position after texture upload rather than revealing an outdated pose. Smoothing reaches 90% of a new sample within 70 ms; this is not an end-to-end latency measurement. Idle polling stays at 20 Hz; active polling is 60 Hz only during a gesture. Capture remains one frame per gesture, and the smaller blur margin reduces temporary image memory.
+
+All 17 tests pass, including 3,721 angle pairs for shape, scale, and bounds, 56 GPU renders, full-resolution resting image fidelity, repeated gestures, and reversals. Hardware sensor and capture latency remain; battery drain and the physical feel are not established by these tests.

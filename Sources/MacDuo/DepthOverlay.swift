@@ -9,57 +9,25 @@ final class OverlayWindow: NSWindow {
     override var canBecomeMain: Bool { false }
 }
 
-/// Where the picture lands on the glass.
-///
-/// The picture is a sheet hinged to the bottom edge of the screen, turned back
-/// in world space by the angle the lid has travelled. The eye stays where it
-/// is while the glass turns under it, so the projection takes both the current
-/// lid angle and the eye position.
+/// A bounded similarity transform: no perspective divide, skew, or upscaling.
+/// This is a restrained visual cue, not a head-tracked world-space projection.
 struct DepthGeometry {
-
-    /// Past 90 degrees the picture turns its face away from the glass.
-    var maxSeparationDegrees: Double = 88
-
-    /// Bottom-left, bottom-right, top-right, top-left.
-    func corners(
-        startAngle: Double,
-        currentAngle: Double,
-        viewingDistanceRatio: Double,
-        recession: Double,
-        screenSize: CGSize,
-        viewingAngle: Double? = nil
-    ) -> [CGPoint] {
-        let width = Double(screenSize.width)
-        let height = Double(screenSize.height)
-        let view = (viewingAngle ?? startAngle) * .pi / 180
-        let current = currentAngle * .pi / 180
-        let travel = startAngle - currentAngle
-        let separation = max(-maxSeparationDegrees, min(recession * travel, maxSeparationDegrees)) * .pi / 180
-
-        // The eye in world axes, hinge at the origin.
-        let reach = height * viewingDistanceRatio * sin(view) + height / 2 * cos(view)
-        let rise = -height * viewingDistanceRatio * cos(view) + height / 2 * sin(view)
-
-        // The same eye, measured along the glass and away from it.
-        let along = reach * cos(current) + rise * sin(current)
-        let depth = max(reach * sin(current) - rise * cos(current), height / 10)
-
-        let half = width / 2
-        func project(_ x: Double, _ y: Double) -> CGPoint {
-            let scale = depth / max(depth + y * sin(separation), height * 0.1)
-            return CGPoint(
-                x: half + (x - half) * scale,
-                y: along + (y * cos(separation) - along) * scale
-            )
-        }
-        return [project(0, 0), project(width, 0), project(width, height), project(0, height)]
+    func corners(startAngle: Double, currentAngle: Double, screenSize: CGSize) -> [CGPoint] {
+        let travel = max(-90, min(90, startAngle - currentAngle)) * .pi / 180
+        let displacement = sin(travel)
+        let scale = 1 - 0.06 * displacement * displacement
+        let width = screenSize.width, height = screenSize.height
+        let x = width * (1 - scale) / 2
+        // Stay inside the panel in both directions; never crop or stretch.
+        let y = height * (1 - scale) * (0.5 + 0.5 * displacement)
+        return [CGPoint(x: x, y: y), CGPoint(x: x + width * scale, y: y),
+                CGPoint(x: x + width * scale, y: y + height * scale),
+                CGPoint(x: x, y: y + height * scale)]
     }
 }
 
 /// The settings that shape one frame.
 struct DepthTuning {
-    var viewingDistance: Double = 2.7
-    var recession: Double = 2
     var blurEvenness: Double = 0.4
     var dimReach: Double = 0.7
     var maxBlurRadius: Double = 55
@@ -102,8 +70,6 @@ final class DepthOverlay {
 
     private var screenSize: CGSize = .zero
     private var startAngle: Double = 90
-    // The eye must not move when the reference plane settles back to the lid.
-    private var viewingAngle: Double = 90
     private var geometry = DepthGeometry()
     private var gradient = BlurGradient()
     private var tuning = DepthTuning()
@@ -129,7 +95,8 @@ final class DepthOverlay {
         startAngle: Double,
         currentAngle: Double,
         tuning: DepthTuning,
-        fadeIn: TimeInterval
+        fadeIn: TimeInterval,
+        latestPose: @escaping () -> (reference: Double, angle: Double)
     ) {
         dismiss(animated: false)
         // The screenshot's screen can be stale once the lid shuts into
@@ -137,7 +104,6 @@ final class DepthOverlay {
         guard let displayID = screen.displayID, displayID == NSScreen.builtIn?.displayID else { return }
         guard warmUp(), let renderer else { return }
         self.startAngle = startAngle
-        self.viewingAngle = startAngle
         self.tuning = tuning
         self.fadeIn = fadeIn
         screenSize = screen.frame.size
@@ -160,7 +126,9 @@ final class DepthOverlay {
                     guard let self, self.buildToken == token, self.window === window,
                           let picture else { return }
                     renderer.adopt(picture)
-                    self.update(progress: min(abs(self.startAngle - currentAngle) / 65, 1), currentAngle: currentAngle, tuning: self.tuning)
+                    let pose = latestPose()
+                    self.update(progress: min(abs(pose.reference - pose.angle) / 65, 1),
+                                currentAngle: pose.angle, referenceAngle: pose.reference, tuning: self.tuning)
                     self.reveal()
                 }
             }
@@ -213,10 +181,7 @@ final class DepthOverlay {
             corners: geometry.corners(
                 startAngle: referenceAngle ?? startAngle,
                 currentAngle: currentAngle,
-                viewingDistanceRatio: tuning.viewingDistance,
-                recession: tuning.recession,
-                screenSize: screenSize,
-                viewingAngle: viewingAngle
+                screenSize: screenSize
             ),
             blurStrength: gradient.blurStrength(progress: progress),
             dimStrength: gradient.dimStrength(progress: progress),

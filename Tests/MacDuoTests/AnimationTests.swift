@@ -29,6 +29,12 @@ final class AnimationTests: XCTestCase {
         }
         XCTAssertEqual(simulate(hz: 60), simulate(hz: 120), accuracy: 0.000001)
     }
+    func testSmoothingReachesNinetyPercentWithinSeventyMilliseconds() {
+        var spring = CriticallyDampedSpring(value: 0)
+        spring.advance(to: 1, dt: 0.07)
+        XCTAssertGreaterThan(spring.value, 0.9)
+        XCTAssertLessThanOrEqual(spring.value, 1)
+    }
     func testDroppedFrameAndReversalSettleWithoutInstability() {
         var spring = CriticallyDampedSpring(value: 90)
         spring.advance(to: 10, dt: 0.5)
@@ -37,14 +43,13 @@ final class AnimationTests: XCTestCase {
         XCTAssertEqual(spring.value, 100, accuracy: 0.001)
         XCTAssertTrue(spring.velocity.isFinite)
     }
-    func testHingeStaysAnchoredAndFlatFrameMatchesDisplay() {
+    func testCenteredImageAndFlatFrameMatchDisplay() {
         let geometry = DepthGeometry()
-        let flat = geometry.corners(startAngle: 90, currentAngle: 90, viewingDistanceRatio: 6, recession: 1, screenSize: CGSize(width: 1440, height: 900))
+        let flat = geometry.corners(startAngle: 90, currentAngle: 90, screenSize: CGSize(width: 1440, height: 900))
         XCTAssertEqual(flat, [CGPoint(x: 0, y: 0), CGPoint(x: 1440, y: 0), CGPoint(x: 1440, y: 900), CGPoint(x: 0, y: 900)])
         for angle in stride(from: 5.0, through: 90.0, by: 5) {
-            let corners = geometry.corners(startAngle: 90, currentAngle: angle, viewingDistanceRatio: 6, recession: 1, screenSize: CGSize(width: 1440, height: 900))
-            XCTAssertEqual(corners[0], CGPoint(x: 0, y: 0))
-            XCTAssertEqual(corners[1], CGPoint(x: 1440, y: 0))
+            let corners = geometry.corners(startAngle: 90, currentAngle: angle, screenSize: CGSize(width: 1440, height: 900))
+            XCTAssertEqual(corners[0].x + corners[1].x, 1440, accuracy: 1e-9)
             XCTAssertTrue(corners.allSatisfy { $0.x.isFinite && $0.y.isFinite })
         }
     }

@@ -12,7 +12,7 @@ final class DepthRenderer {
 
     /// Black margin around the picture, in points. Stays above the largest
     /// blur radius, so the blur reaches real black on every side.
-    nonisolated private static let paddingInPoints: CGFloat = 120
+    nonisolated private static let paddingInPoints: CGFloat = 48
 
     private struct Uniforms {
         var column0: SIMD4<Float>

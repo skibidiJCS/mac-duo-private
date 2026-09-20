@@ -47,9 +47,9 @@ final class LidController: ObservableObject {
     // Twenty inexpensive HID reads/sec bounds polling latency to about 50 ms.
     // Rendering follows display refresh only while the image actually changes.
     private static let idleInterval = 1.0 / 20
-    private static let activeInterval = 1.0 / 20
-    private let tuning = DepthTuning(viewingDistance: 4.0, recession: 1, blurEvenness: 0,
-                                    dimReach: 0.65, maxBlurRadius: 100, maxDim: 0.85)
+    private static let activeInterval = 1.0 / 60
+    private let tuning = DepthTuning(blurEvenness: 0,
+                                    dimReach: 0.65, maxBlurRadius: 32, maxDim: 0.45)
 
     init(preferences: Preferences) {
         self.preferences = preferences
@@ -233,7 +233,12 @@ final class LidController: ObservableObject {
             self.visualAngle.reset(to: self.motion.angle)
             self.overlay.show(image: snapshot.image, on: snapshot.screen,
                               startAngle: self.motion.reference(at: CACurrentMediaTime()),
-                              currentAngle: self.motion.angle, tuning: self.tuning, fadeIn: 0)
+                              currentAngle: self.motion.angle, tuning: self.tuning, fadeIn: 0,
+                              latestPose: { [weak self] in
+                                  guard let self else { return (90, 90) }
+                                  self.visualAngle.reset(to: self.motion.angle)
+                                  return (self.motion.reference(at: CACurrentMediaTime()), self.motion.angle)
+                              })
             self.statusMessage = "Ready — move the lid or use Preview"
             self.isActive = self.overlay.isVisible
             self.startDisplayLink()

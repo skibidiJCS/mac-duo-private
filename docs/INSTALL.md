@@ -1,4 +1,4 @@
-# Download and install Mac Duo Private 0.4.3
+# Download and install Mac Duo Private 0.4.4
 
 ## Which file to download
 
@@ -13,7 +13,7 @@ On GitHub, open **Releases → latest release → Assets → Mac-Duo-Private.dmg
 3. Drag **Mac Duo Private.app** onto **Applications** in that window. Choose **Replace** if Finder asks. Wait for copying to finish.
 4. Eject the **Mac Duo Private** disk from Finder's sidebar. Do not run the app from that disk.
 5. In Finder, press **Shift–Command–A** to open Applications. Open **Mac Duo Private** there.
-6. Click its laptop menu-bar icon. Confirm **Version 0.4.3** appears and **Lid animation** is on. There is no normal Dock icon.
+6. Click its laptop menu-bar icon. Confirm **Version 0.4.4** appears and **Lid animation** is on. There is no normal Dock icon.
 
 ## Allow the animation
 

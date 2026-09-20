@@ -1,6 +1,6 @@
 # Push this project to GitHub
 
-Nothing has been committed or pushed for you. The local repository already exists on `main`, with no remote configured. These instructions publish the source; a Release makes the app downloadable.
+The repository now has an initial commit and an `origin` remote. For this update, use **Later updates** below; do not add the remote again. The first-time setup steps are retained for a fresh repository. A GitHub Release makes the app downloadable.
 
 ## 1. Create the empty repository
 
@@ -48,8 +48,8 @@ If `origin` already exists because you followed these steps earlier, inspect `gi
 After the push:
 
 1. Open your repository on GitHub → **Releases → Draft a new release**.
-2. Choose tag **v0.4.3** and create it on **main**.
-3. Title: **Mac Duo Private 0.4.3**.
+2. Choose tag **v0.4.4** and create it on **main**.
+3. Title: **Mac Duo Private 0.4.4**.
 4. Explain that it requires a compatible Apple Silicon MacBook, macOS 14+, and Screen Recording permission; this build is not notarized.
 5. Attach these files from the local `dist` folder:
    - **Mac-Duo-Private.dmg** — normal download for users.
@@ -66,7 +66,7 @@ Keep LICENSE, NOTICE, and the Makito attribution: the renderer derives from Apac
 cd '/Users/jiacai/Documents/ChatGPT/mac duo'
 git add Sources Tests Resources docs README.md PRIVACY.md NOTICE Package.swift build.sh package.sh .gitignore
 git diff --cached --stat
-git commit -m "Describe your change"
+git commit -m "Remove perspective stretching and improve lid animation responsiveness"
 git push
 ```
 

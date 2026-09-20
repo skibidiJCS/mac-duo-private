@@ -4,7 +4,7 @@ import Foundation
 struct CriticallyDampedSpring {
     var value: Double
     var velocity: Double = 0
-    var frequency: Double = 22
+    var frequency: Double = 60
 
     init(value: Double = 0) { self.value = value }
 

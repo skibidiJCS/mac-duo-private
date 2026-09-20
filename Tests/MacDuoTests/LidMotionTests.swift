@@ -3,51 +3,22 @@ import simd
 @testable import MacDuo
 
 final class LidMotionTests: XCTestCase {
-    func testProjectionMatchesIndependentWorldSpaceRayIntersection() {
-        let width = 1440.0, height = 900.0
-        for start in [70.0, 90, 110, 125] {
-            for current in [60.0, 90, 120] {
-                let a = start * .pi / 180, b = current * .pi / 180
-                let eye = SIMD3(0.0, height * 2.7 * sin(a) + height / 2 * cos(a), -height * 2.7 * cos(a) + height / 2 * sin(a))
-                let normal = SIMD3(0.0, sin(b), -cos(b))
-                let alongGlass = SIMD3(0.0, cos(b), sin(b))
-                let actual = DepthGeometry().corners(startAngle: start, currentAngle: current,
-                    viewingDistanceRatio: 2.7, recession: 1, screenSize: CGSize(width: width, height: height))
-                for (i, point) in [(0, SIMD2(0.0, 0.0)), (1, SIMD2(width, 0.0)), (2, SIMD2(width, height)), (3, SIMD2(0.0, height))] {
-                    let world = SIMD3(point.x - width / 2, point.y * cos(a), point.y * sin(a))
-                    let ray = world - eye
-                    let hit = eye + ray * (-simd_dot(eye, normal) / simd_dot(ray, normal))
-                    XCTAssertEqual(actual[i].x, hit.x + width / 2, accuracy: 1e-8)
-                    XCTAssertEqual(actual[i].y, simd_dot(hit, alongGlass), accuracy: 1e-8)
-                }
-            }
-        }
-    }
-
-    func testInteriorPointsStayOnFixedWorldPlaneDuringOpeningClosingAndRecovery() {
-        let size = CGSize(width: 1440, height: 900)
-        let view = 110.0 * .pi / 180
-        let eye = SIMD3(0.0, 900 * (4 * sin(view) + 0.5 * cos(view)),
-                        900 * (-4 * cos(view) + 0.5 * sin(view)))
-        for reference in [75.0, 95, 110, 125] {
-            for current in [65.0, 90, 110, 135] {
-                let a = reference * .pi / 180, b = current * .pi / 180
-                let normal = SIMD3(0.0, sin(b), -cos(b))
-                let along = SIMD3(0.0, cos(b), sin(b))
-                let corners = DepthGeometry().corners(startAngle: reference, currentAngle: current,
-                    viewingDistanceRatio: 4, recession: 1, screenSize: size, viewingAngle: 110)
-                let transform = Homography.matrix(width: 1440, height: 900,
-                    to: corners.map { SIMD2(Double($0.x), Double($0.y)) })
-                for x in stride(from: 0.0, through: 1440, by: 180) {
-                    for y in stride(from: 0.0, through: 900, by: 150) {
-                        let world = SIMD3(x - 720, y * cos(a), y * sin(a))
-                        let ray = world - eye
-                        let hit = eye + ray * (-simd_dot(eye, normal) / simd_dot(ray, normal))
-                        let mapped = transform * SIMD3(x, y, 1)
-                        XCTAssertEqual(mapped.x / mapped.z, hit.x + 720, accuracy: 1e-7)
-                        XCTAssertEqual(mapped.y / mapped.z, simd_dot(hit, along), accuracy: 1e-7)
-                    }
-                }
+    func testEveryAnglePreservesAspectRatioWithoutMagnificationOrCropping() {
+        let geometry = DepthGeometry()
+        for start in stride(from: 0.0, through: 180, by: 3) {
+            for current in stride(from: 0.0, through: 180, by: 3) {
+                let p = geometry.corners(startAngle: start, currentAngle: current,
+                                         screenSize: CGSize(width: 1440, height: 900))
+                let sx = (p[1].x - p[0].x) / 1440
+                let sy = (p[3].y - p[0].y) / 900
+                XCTAssertEqual(sx, sy, accuracy: 1e-12)
+                XCTAssertGreaterThanOrEqual(sx, 0.94 - 1e-12)
+                XCTAssertLessThanOrEqual(sx, 1)
+                XCTAssertEqual(p[0].y, p[1].y)
+                XCTAssertEqual(p[2].y, p[3].y)
+                XCTAssertEqual(p[0].x, p[3].x)
+                XCTAssertEqual(p[1].x, p[2].x)
+                XCTAssertTrue(p.allSatisfy { $0.x >= -1e-9 && $0.x <= 1440 + 1e-9 && $0.y >= -1e-9 && $0.y <= 900 + 1e-9 })
             }
         }
     }
@@ -145,16 +116,15 @@ final class LidMotionTests: XCTestCase {
     func testGeometryUsesBothDirectionsAndIsIdentityAtAnyRestAngle() {
         let geometry = DepthGeometry()
         for start in stride(from: 10.0, through: 130, by: 10) {
-            let flat = geometry.corners(startAngle: start, currentAngle: start, viewingDistanceRatio: 2.7, recession: 1, screenSize: CGSize(width: 1440, height: 900))
+            let flat = geometry.corners(startAngle: start, currentAngle: start, screenSize: CGSize(width: 1440, height: 900))
             XCTAssertEqual(flat[2].x, 1440, accuracy: 0.000001)
             XCTAssertEqual(flat[2].y, 900, accuracy: 0.000001)
             for current in stride(from: 5.0, through: 135, by: 5) {
-                let corners = geometry.corners(startAngle: start, currentAngle: current, viewingDistanceRatio: 2.7, recession: 1, screenSize: CGSize(width: 1440, height: 900))
-                XCTAssertEqual(corners[0], .zero)
+                let corners = geometry.corners(startAngle: start, currentAngle: current, screenSize: CGSize(width: 1440, height: 900))
                 XCTAssertTrue(corners.allSatisfy { $0.x.isFinite && $0.y.isFinite })
             }
         }
-        let opening = geometry.corners(startAngle: 90, currentAngle: 110, viewingDistanceRatio: 2.7, recession: 1, screenSize: CGSize(width: 1440, height: 900))
+        let opening = geometry.corners(startAngle: 90, currentAngle: 110, screenSize: CGSize(width: 1440, height: 900))
         XCTAssertNotEqual(opening[2], CGPoint(x: 1440, y: 900))
     }
 }
