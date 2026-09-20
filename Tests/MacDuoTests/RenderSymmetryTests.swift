@@ -4,6 +4,53 @@ import Metal
 @testable import MacDuo
 
 final class RenderSymmetryTests: XCTestCase {
+    @MainActor func testBlurReconstructionSmoothsMipCellsAndUsesCorrectLevel() throws {
+        let device = try XCTUnwrap(MTLCreateSystemDefaultDevice())
+        let source = DepthShaders.source + """
+
+        kernel void checkSmooth(texture2d<float> image [[texture(0)]],
+                                device float2 *output [[buffer(0)]],
+                                uint i [[thread_position_in_grid]]) {
+            constexpr sampler linear(filter::linear, mip_filter::nearest, address::clamp_to_edge);
+            float2 uv = float2((float(i) + 0.5) / 256.0, 0.5);
+            output[i] = float2(cubicLevel(image, uv, 2).r, image.sample(linear, uv, level(2)).r);
+        }
+        """
+        let library = try device.makeLibrary(source: source, options: nil)
+        let pipeline = try device.makeComputePipelineState(function: try XCTUnwrap(library.makeFunction(name: "checkSmooth")))
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .r32Float, width: 32, height: 32, mipmapped: true)
+        descriptor.storageMode = .shared
+        descriptor.usage = [.shaderRead]
+        let texture = try XCTUnwrap(device.makeTexture(descriptor: descriptor))
+        for level in 0..<texture.mipmapLevelCount {
+            let size = max(32 >> level, 1)
+            let values: [Float] = (0..<(size * size)).map { level == 2 ? Float(($0 % size) % 2) : 0.1 }
+            values.withUnsafeBytes { bytes in
+                texture.replace(region: MTLRegionMake2D(0, 0, size, size), mipmapLevel: level,
+                                withBytes: bytes.baseAddress!, bytesPerRow: size * 4)
+            }
+        }
+        let output = try XCTUnwrap(device.makeBuffer(length: 256 * MemoryLayout<SIMD2<Float>>.stride, options: .storageModeShared))
+        let queue = try XCTUnwrap(device.makeCommandQueue())
+        let commands = try XCTUnwrap(queue.makeCommandBuffer())
+        let encoder = try XCTUnwrap(commands.makeComputeCommandEncoder())
+        encoder.setComputePipelineState(pipeline)
+        encoder.setTexture(texture, index: 0)
+        encoder.setBuffer(output, offset: 0, index: 0)
+        encoder.dispatchThreads(MTLSize(width: 256, height: 1, depth: 1), threadsPerThreadgroup: MTLSize(width: 32, height: 1, depth: 1))
+        encoder.endEncoding(); commands.commit(); commands.waitUntilCompleted()
+        XCTAssertEqual(commands.status, .completed)
+        let pixels = output.contents().assumingMemoryBound(to: SIMD2<Float>.self)
+        var cubicJump: Float = 0, linearJump: Float = 0, mean: Float = 0
+        for i in 1..<255 {
+            let change = pixels[i + 1] - 2 * pixels[i] + pixels[i - 1]
+            cubicJump = max(cubicJump, abs(change.x)); linearJump = max(linearJump, abs(change.y))
+            mean += pixels[i].x / 254
+        }
+        XCTAssertEqual(mean, 0.5, accuracy: 0.01, "Must sample the requested blurred level, not the full-resolution base")
+        XCTAssertLessThan(cubicJump, linearJump * 0.2, "Blur should not show abrupt slope changes at mip texel boundaries")
+    }
+
     @MainActor func testSymmetricDesktopStaysCenteredThroughBlurAndPerspective() throws {
         let device = try XCTUnwrap(MTLCreateSystemDefaultDevice())
         let renderer = try XCTUnwrap(DepthRenderer())
@@ -31,7 +78,7 @@ final class RenderSymmetryTests: XCTestCase {
             for angle in [170.0, 150, 130, 120, 110, 100, 85, 65, 40, 25, 20] {
                 let progress = min(abs(110 - angle) / 65, 1)
                 let gradient = BlurGradient()
-                let commands = try XCTUnwrap(renderer.render(screenToPicture: DepthGeometry().screenToPicture(startAngle: 110, currentAngle: angle, screenSize: CGSize(width: Double(width) / Double(scale), height: Double(height) / Double(scale))), blurStrength: gradient.blurStrength(progress: progress), dimStrength: gradient.dimStrength(progress: progress), hingeFloor: 0, dimHingeFloor: 0.2, dimReach: 0.65, maxBlurRadius: 32, maxDim: 0.12, offscreenTarget: output))
+                let commands = try XCTUnwrap(renderer.render(screenToPicture: DepthGeometry().screenToPicture(startAngle: 110, currentAngle: angle, screenSize: CGSize(width: Double(width) / Double(scale), height: Double(height) / Double(scale))), blurStrength: gradient.blurStrength(progress: progress), dimStrength: gradient.dimStrength(progress: progress), hingeFloor: 0, dimHingeFloor: 0.2, dimReach: 0.65, maxBlurRadius: 32, maxDim: 0.12, closingAmount: min(max((110 - angle) / 15, 0), 1), offscreenTarget: output))
                 commands.waitUntilCompleted()
                 XCTAssertEqual(commands.status, .completed)
                 var bytes = [UInt8](repeating: 0, count: width * height * 4)
@@ -45,8 +92,31 @@ final class RenderSymmetryTests: XCTestCase {
                     XCTAssertLessThanOrEqual(identityError, 1, "Resting frame must preserve full-resolution pixels")
                 }
                 if !grid {
-                    let darkest = stride(from: 0, to: bytes.count, by: 4).map { bytes[$0] }.min()!
-                    XCTAssertGreaterThan(darkest, 200, "The frosted backdrop must not collapse to black")
+                    let center = Int(bytes[((height / 2) * width + width / 2) * 4])
+                    XCTAssertGreaterThan(center, 200, "Closing must not darken the entire desktop")
+                    if angle < 110 {
+                        let side = Int(bytes[((height / 2) * width) * 4])
+                        XCTAssertLessThan(side, center - 25, "Closing must darken the exposed sides")
+                        if angle == 65 && width >= 512 {
+                            // The original boundary remains the midpoint of a
+                            // feather, with visible light spilling outside it.
+                            let screenHeight = Double(height) / Double(scale)
+                            let screenY = screenHeight - (Double(height / 2) + 0.5) / Double(scale)
+                            let matrix = DepthGeometry().screenToPicture(startAngle: 110, currentAngle: angle,
+                                screenSize: CGSize(width: Double(width) / Double(scale), height: screenHeight))
+                            let edgeX = -matrix[1].x * screenY * Double(scale)
+                            let outsideX = max(Int(edgeX) - 4 * scale, 0)
+                            let insideX = min(Int(edgeX) + 4 * scale, width - 1)
+                            let outside = Int(bytes[((height / 2) * width + outsideX) * 4])
+                            let inside = Int(bytes[((height / 2) * width + insideX) * 4])
+                            XCTAssertGreaterThan(outside, 20, "Edge blur must spill outside the projected image")
+                            XCTAssertLessThan(outside, inside, "The feather must fade continuously toward the dark side")
+                            XCTAssertLessThan(inside, center - 5, "Blur must also soften the inside of the outline")
+                        }
+                    } else {
+                        let darkest = stride(from: 0, to: bytes.count, by: 4).map { bytes[$0] }.min()!
+                        XCTAssertGreaterThan(darkest, 200, "Opening should retain the frosted continuation")
+                    }
                 }
                 var worst = 0
                 var sum = 0

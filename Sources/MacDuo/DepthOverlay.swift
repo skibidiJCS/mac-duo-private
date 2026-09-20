@@ -14,7 +14,7 @@ final class OverlayWindow: NSWindow {
 /// Direct inverse projection crops the original plane; it never fits that plane
 /// into a shrinking rectangle. The assumed eye remains fixed through recovery.
 struct DepthGeometry {
-    static let viewingDistance = 3.5
+    static let viewingDistance = 4.0
 
     func screenToPicture(startAngle: Double, currentAngle: Double, screenSize: CGSize,
                          viewingAngle: Double? = nil) -> simd_double3x3 {
@@ -202,7 +202,8 @@ final class DepthOverlay {
             dimHingeFloor: gradient.dimHingeFloor,
             dimReach: tuning.dimReach,
             maxBlurRadius: tuning.maxBlurRadius,
-            maxDim: tuning.maxDim
+            maxDim: tuning.maxDim,
+            closingAmount: min(max(((referenceAngle ?? startAngle) - currentAngle) / 15, 0), 1)
         )
     }
 

@@ -1,4 +1,4 @@
-# Mac Duo Private 0.4.6
+# Mac Duo Private 0.4.8
 
 A native, local-only MacBook lid effect inspired by the iPhone Duo. Built on Makito's Apache-2.0 Mac Duo renderer, with a rewritten gesture controller. This is an independent modified build, not an Apple or official upstream app.
 
@@ -12,7 +12,7 @@ The current local build is Apple Development signed, not Apple-notarized. Builds
 
 ## Automatic behavior
 
-The actual resting lid angle becomes the gesture reference; there is no fixed 90° activation threshold. The renderer traces the moving glass back to the held desktop plane using a fixed assumed viewing position. It crops that plane instead of fitting it into a compressed strip. A frosted continuation of the same image fills the panel beyond its bounds; blur increases away from the hinge. At extreme magnification, fine detail fades into frost before large texels become visible. After roughly 0.85 seconds without significant movement, the picture returns to the glass over 0.32 seconds and adopts the new angle. Movement during the return continues smoothly from the visible plane.
+The actual resting lid angle becomes the gesture reference; there is no fixed 90° activation threshold. The renderer traces the moving glass back to the held desktop plane using a fixed assumed viewing position. It crops that plane instead of fitting it into a compressed strip. The sides exposed during closing darken symmetrically; opening retains a frosted continuation of the same image. Blur increases away from the hinge. At extreme magnification, fine detail fades into frost before large texels become visible. After roughly 0.85 seconds without significant movement, the picture returns to the glass over 0.32 seconds and adopts the new angle. Movement during the return continues smoothly from the visible plane.
 
 The supplied video was reviewed directly, including paused close-up frames. This is a reference-informed adaptation, not a verified pixel-for-pixel reproduction. The timings and assumed viewing position remain approximations; no camera or head tracking is used. See [reference observations](docs/REFERENCE.md).
 
@@ -95,3 +95,15 @@ All 18 tests pass, including independent 3D projection checks, the 90° to 15° 
 Replaced the rejected orthographic squeeze with direct inverse perspective onto the original plane. The viewing position is held fixed through tracking and recovery. Edge-extended texture padding and a blurred continuation fill the glass instead of exposing a black background. A continuous magnification guard fades detail into frost at grazing angles. Anisotropic filtering, full-resolution capture, fast smoothing, and the latest-pose first frame remain.
 
 All 18 tests pass: independent world-space ray comparisons, signed opening/closing perspective, finite transforms across the sensor range, reversal/recovery, and 88 GPU frames covering symmetry, resting pixel fidelity, and absence of black collapse. This does not establish a precise match for every physical viewing position or measure battery drain. The new composition adds one texture sample per animated pixel but no extra capture, retained image, or idle rendering.
+
+## Version 0.4.7 edge shading and blur quality
+
+Restored dark side wedges during closing, based on the projected image boundary rather than a full-screen vignette. The assumed viewing distance increased from 3.5 to 4 screen heights to reduce perspective exaggeration slightly while preserving held-plane movement. Coarse blur levels use cubic reconstruction and continuous level blending to smooth visible texel cells; low-blur and resting pixels retain the existing full-resolution path. The reconstruction filter's additional softness is compensated slightly to keep the blur strength close to the previous version.
+
+All 19 tests pass, including 88 rendered frames, symmetric closing shadows, bright centers, opening coverage, resting pixel fidelity, and a GPU test for blur slope continuity and correct mip-level selection. More texture reads are used where strong blur needs reconstruction; capture count, image memory, sensor polling, and idle rendering are unchanged. Physical appearance and battery usage still require on-device verification.
+
+## Version 0.4.8 soft outline
+
+Kept the approved 0.4.7 projection, dimensions, and motion unchanged. Added a centred feather around the projected outline, with extra blur localized to that edge band. Edge distance is measured on the glass, so its softness remains consistent under perspective. Closing shadows are applied once after compositing, allowing the image to soften into the dark sides without moving the underlying boundary inward. Edge blur fades with the existing motion/recovery strength and is absent at rest.
+
+All 19 tests pass, including GPU checks for blur outside and inside the original boundary, symmetry, dark closing sides, sharp resting pixels, and smooth blur reconstruction. No additional capture, texture allocation, or idle work was added. The reference was reviewed again at its close-up transition; exact physical appearance still depends on the viewing position.

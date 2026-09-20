@@ -2,7 +2,7 @@ import Foundation
 
 /// The whole effect in one fragment shader.
 ///
-/// One held-plane sample and one frosted background sample share the same
+/// Held-plane and frosted background reconstruction share the same
 /// edge-extended texture pyramid. No live stream or second image is needed.
 enum DepthShaders {
     static let source = """
@@ -17,7 +17,7 @@ enum DepthShaders {
         float4 screenAndOrigin;  // screen size, padded origin in picture points
         float4 paddedAndBlur;    // padded size, max radius in pixels, blur strength
         float4 shape;            // blur floor, max dim, pixel scale, max level
-        float4 light;            // dim floor, dim strength, dim reach, unused
+        float4 light;            // dim floor, dim strength, dim reach, closing amount
     };
 
     // Center every level on the same normalized image coordinates, including
@@ -38,6 +38,37 @@ enum DepthShaders {
         float3 encoded = select(1.055 * pow(max(colour.rgb, 0.0), float3(1.0 / 2.4)) - 0.055,
                                 12.92 * colour.rgb, colour.rgb <= 0.0031308);
         target.write(float4(encoded, colour.a), id);
+    }
+
+    // Cubic B-spline reconstruction removes visible low-resolution mip cells.
+    // Four bilinear reads reconstruct one level; interpolate levels continuously.
+    float4 cubicLevel(texture2d<float> image, float2 uv, uint lod) {
+        constexpr sampler s(filter::linear, mip_filter::nearest, address::clamp_to_edge);
+        float2 size = float2(image.get_width(lod), image.get_height(lod));
+        float2 p = uv * size - 0.5;
+        float2 base = floor(p), f = fract(p), inv = 1.0 - f;
+        float2 w0 = inv * inv * inv / 6.0;
+        float2 w1 = (3.0*f*f*f - 6.0*f*f + 4.0) / 6.0;
+        float2 w2 = (-3.0*f*f*f + 3.0*f*f + 3.0*f + 1.0) / 6.0;
+        float2 w3 = f*f*f / 6.0;
+        float2 g0 = w0 + w1, g1 = w2 + w3;
+        float2 lo = (base - 0.5 + w1 / g0) / size;
+        float2 hi = (base + 1.5 + w3 / g1) / size;
+        return image.sample(s, float2(lo.x, lo.y), level(lod)) * g0.x * g0.y
+             + image.sample(s, float2(hi.x, lo.y), level(lod)) * g1.x * g0.y
+             + image.sample(s, float2(lo.x, hi.y), level(lod)) * g0.x * g1.y
+             + image.sample(s, float2(hi.x, hi.y), level(lod)) * g1.x * g1.y;
+    }
+
+    float4 softSample(texture2d<float> image, float2 uv, float lod, float maxLevel) {
+        constexpr sampler s(filter::linear, mip_filter::linear, address::clamp_to_edge);
+        // Compensate slightly for the reconstruction filter's own softness.
+        lod = clamp(lod - 0.2 * smoothstep(1.0, 3.0, lod), 0.0, maxLevel);
+        if (lod <= 1.0) { return image.sample(s, uv, level(lod)); }
+        uint low = uint(floor(lod)), high = min(low + 1, uint(maxLevel));
+        float4 smooth = mix(cubicLevel(image, uv, low), cubicLevel(image, uv, high), fract(lod));
+        if (lod >= 2.0) { return smooth; }
+        return mix(image.sample(s, uv, level(lod)), smooth, smoothstep(1.0, 2.0, lod));
     }
 
     vertex float4 depthVertex(uint vertexID [[vertex_id]]) {
@@ -80,7 +111,7 @@ enum DepthShaders {
         float2 baseUnit = (screenPoint - paddedOrigin) / paddedSize;
         float2 baseUV = float2(baseUnit.x, 1.0 - baseUnit.y);
         float backgroundLevel = clamp(log2(max(strength * maxRadius * 1.6, 1.0)), 0.0, maxLevel);
-        float4 background = picture.sample(linearSampler, baseUV, level(backgroundLevel));
+        float4 background = softSample(picture, baseUV, backgroundLevel, maxLevel);
 
         float3 mapped = screenToPicture * float3(screenPoint, 1.0);
         float4 colour = background;
@@ -90,19 +121,44 @@ enum DepthShaders {
             float2 texCoord = float2(unit.x, 1.0 - unit.y);
             float2 dx = (uniforms.column0.xy - picturePoint * uniforms.column0.z) / mapped.z;
             float2 dy = (uniforms.column1.xy - picturePoint * uniforms.column1.z) / mapped.z;
+            // Measure distance to the projected outline on the physical glass.
+            // A centred feather softens both sides without moving the boundary.
+            float sideDistance = min(picturePoint.x, screenSize.x - picturePoint.x)
+                / max(length(float2(dx.x, dy.x)), 0.0001);
+            float endDistance = min(picturePoint.y, screenSize.y - picturePoint.y)
+                / max(length(float2(dx.y, dy.y)), 0.0001);
+            float outlineDistance = min(sideDistance, endDistance);
+            float edgeWidth = min(24.0, maxRadius / pixelScale * 0.75) * sqrt(strength);
+            float feather = max(edgeWidth, 0.5 / pixelScale);
+            float edgeBand = 1.0 - smoothstep(0.0, 2.0 * feather, abs(outlineDistance));
+            radius = max(radius, edgeWidth * pixelScale * 0.7 * edgeBand);
+            float edgeFade = strength > 0.00001 ? smoothstep(-feather, feather, outlineDistance) : 1.0;
+            float sideCoverage = strength > 0.00001 ? smoothstep(-feather, feather, sideDistance) : 1.0;
             float2 uvPerPoint = float2(1.0, -1.0) / paddedSize;
             float2 gx = dx * uvPerPoint * radius / pixelScale;
             float2 gy = dy * uvPerPoint * radius / pixelScale;
-            float4 held = picture.sample(linearSampler, texCoord, gradient2d(gx, gy));
-            float edge = min(min(picturePoint.x, screenSize.x - picturePoint.x),
-                             min(picturePoint.y, screenSize.y - picturePoint.y));
-            float edgeFade = smoothstep(0.0, max(radius / pixelScale, 0.5), edge);
+            float4 held;
+            float footprint = max(length(dx), length(dy));
+            float blurLevel = log2(max(radius * footprint, 1.0));
+            if (radius > 2.0 && blurLevel > 1.0) {
+                float4 filtered = softSample(picture, texCoord, blurLevel, maxLevel);
+                if (radius >= 4.0) { held = filtered; }
+                else {
+                    float4 sharp = picture.sample(linearSampler, texCoord, gradient2d(gx, gy));
+                    held = mix(sharp, filtered, smoothstep(2.0, 4.0, radius));
+                }
+            } else {
+                held = picture.sample(linearSampler, texCoord, gradient2d(gx, gy));
+            }
             // Fade into frost before a grazing view can expose giant texels.
             // Singular values detect magnification in any direction, not just x/y.
             float aa = dot(dx, dx), bb = dot(dy, dy), ab = dot(dx, dy);
             float smallest = sqrt(max(0.0, 0.5 * (aa + bb - sqrt(max(0.0, (aa-bb)*(aa-bb) + 4.0*ab*ab)))));
             float detailFade = smoothstep(0.35, 0.75, smallest);
             colour = mix(background, held, edgeFade * detailFade);
+            // Apply closing shadows after compositing, avoiding a double mask
+            // that pinches the image inward. Opening keeps its frosted surround.
+            colour.rgb *= mix(1.0, sideCoverage, uniforms.light.w);
         }
         // smoothstep rather than a clamped ratio, so the height where the
         // dimming reaches full strength leaves no visible edge.

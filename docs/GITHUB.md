@@ -48,8 +48,8 @@ If `origin` already exists because you followed these steps earlier, inspect `gi
 After the push:
 
 1. Open your repository on GitHub → **Releases → Draft a new release**.
-2. Choose tag **v0.4.6** and create it on **main**.
-3. Title: **Mac Duo Private 0.4.6**.
+2. Choose tag **v0.4.8** and create it on **main**.
+3. Title: **Mac Duo Private 0.4.8**.
 4. Explain that it requires a compatible Apple Silicon MacBook, macOS 14+, and Screen Recording permission; this build is not notarized.
 5. Attach these files from the local `dist` folder:
    - **Mac-Duo-Private.dmg** — normal download for users.
@@ -66,7 +66,7 @@ Keep LICENSE, NOTICE, and the Makito attribution: the renderer derives from Apac
 cd '/Users/jiacai/Documents/ChatGPT/mac duo'
 git add Sources Tests Resources docs README.md PRIVACY.md NOTICE Package.swift build.sh package.sh .gitignore
 git diff --cached --stat
-git commit -m "Rebuild lid animation with held-plane perspective and frosted glass"
+git commit -m "Add soft edge blur while preserving lid animation geometry"
 git push
 ```
 

@@ -262,6 +262,7 @@ final class DepthRenderer {
         dimReach: Double,
         maxBlurRadius: Double,
         maxDim: Double,
+        closingAmount: Double = 0,
         offscreenTarget: MTLTexture? = nil
     ) -> MTLCommandBuffer? {
         guard let commands = queue.makeCommandBuffer() else { return nil }
@@ -286,7 +287,7 @@ final class DepthRenderer {
                 Float(maxBlurRadius * Double(pixelScale)), Float(blurStrength)
             ),
             shape: SIMD4(Float(hingeFloor), Float(maxDim), Float(pixelScale), maxLevel),
-            light: SIMD4(Float(dimHingeFloor), Float(dimStrength), Float(dimReach), 0)
+            light: SIMD4(Float(dimHingeFloor), Float(dimStrength), Float(dimReach), Float(closingAmount))
         )
 
         let pass = MTLRenderPassDescriptor()

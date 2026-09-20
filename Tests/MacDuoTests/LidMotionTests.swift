@@ -6,8 +6,8 @@ final class LidMotionTests: XCTestCase {
     func testInverseProjectionMatchesIndependentWorldSpaceRays() {
         let size = CGSize(width: 1440, height: 900)
         let view = 110.0 * .pi / 180
-        let eye = SIMD3(0.0, 900 * (3.5 * sin(view) + 0.5 * cos(view)),
-                        900 * (-3.5 * cos(view) + 0.5 * sin(view)))
+        let eye = SIMD3(0.0, 900 * (4.0 * sin(view) + 0.5 * cos(view)),
+                        900 * (-4.0 * cos(view) + 0.5 * sin(view)))
         for reference in [60.0, 90, 110, 140] {
             for current in stride(from: 5.0, through: 175, by: 5) {
                 let a = reference * .pi / 180, b = current * .pi / 180
